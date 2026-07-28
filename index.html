@@ -93,6 +93,26 @@
   .rules-box-title{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:15px;
     color:var(--host);margin:0 0 10px}
   .rules-box-text{font-size:13.5px;line-height:1.7;color:var(--text);white-space:pre-line}
+
+  .team-card{background:#081019;border:1.5px solid var(--line);border-radius:13px;padding:14px;margin-bottom:12px}
+  .team-card.full{border-color:var(--ok)}
+  .team-card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;gap:8px}
+  .team-card-name{font-family:"Space Grotesk",sans-serif;font-weight:700;font-size:14.5px;flex:1;min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .team-card-count{font-size:11.5px;color:var(--muted);flex-shrink:0}
+  .team-name-input{font-size:13px;padding:8px 10px;margin-bottom:8px}
+  .team-member-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;
+    font-size:13px;border-top:1px solid var(--line)}
+  .team-member-row:first-of-type{border-top:none}
+  .team-member-name .captain-star{color:var(--amber);margin-right:4px}
+  .team-join-btn{width:auto;padding:8px 16px;font-size:12.5px;margin-top:6px}
+  .team-host-controls{display:flex;gap:6px;flex-shrink:0}
+  .team-host-controls select{width:auto;font-size:11px;padding:5px 6px}
+  .team-host-controls button{width:auto;padding:5px 9px;font-size:11px;background:transparent;
+    border:1px solid var(--line);border-radius:8px;color:var(--muted);cursor:pointer;font-family:inherit}
+  .team-host-controls button:hover{border-color:var(--bad);color:var(--bad)}
+  .spectator-card{background:#081019;border:1px dashed var(--line);border-radius:13px;padding:14px;margin-bottom:12px}
+  .spectator-card-title{font-size:12.5px;color:var(--muted);margin-bottom:8px;font-weight:600}
   .hidden{display:none!important}
   .center{text-align:center}
   .landing-logo-wrap{ max-width:380px; margin:6px auto 4px; }
@@ -418,6 +438,7 @@
     <div style="height:16px"></div>
     <div class="t-count" id="t-count">1 Spieler</div>
     <div id="t-roster" class="roster-list"></div>
+    <div id="t-team-roster" class="hidden"></div>
 
     <div id="t-bots-section" class="hidden">
       <div class="bot-box">
@@ -466,6 +487,25 @@
           </label>
         </div>
         <p class="bot-hint">Bei Best of 3/5 werden mehrere Duelle nacheinander gespielt (bei unterschiedlicher Fächer-Wahl auch unterschiedliche Fächer) — wer zuerst die Mehrheit gewinnt, zieht in die nächste Runde ein.</p>
+      </div>
+
+      <div class="bot-box">
+        <div class="setting-row" style="background:transparent;border:none;padding:0;margin:0 0 4px">
+          <span class="bot-label" style="margin:0">🏳️ Team-Battle-Royale (nur BR)</span>
+          <label class="switch">
+            <input type="checkbox" id="team-mode-toggle">
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+        <div class="bot-controls hidden" id="team-mode-settings">
+          <label>Anzahl Teams
+            <input type="number" id="team-count" min="2" max="8" value="2">
+          </label>
+          <label>Teamgröße
+            <input type="number" id="team-size" min="2" max="6" value="2">
+          </label>
+        </div>
+        <p class="bot-hint" id="team-mode-hint">Spieler wählen ihr Team selbst in der Lobby. Alle Teams müssen exakt die eingestellte Größe erreichen, bevor die Battle Royale gestartet werden kann. Gewertet wird die Summe aus richtigen Antworten/Punkten aller Team-Mitglieder — Sabotage trifft dann ein ganzes gegnerisches Team, der Konsil-Joker löst sich für alle Team-Mitglieder gleichzeitig auf.</p>
       </div>
 
       <div class="bot-box">
@@ -3714,6 +3754,17 @@ let myPlayerId = null;      // "HOST" wenn Host, sonst eigene Peer-ID als Gast
 let tConns = {};            // Host: playerId -> DataConnection
 let tConn = null;           // Gast: Verbindung zum Host
 let tPlayers = {};          // Host: playerId -> {name, disconnected?}
+
+/* ---- Team-Battle-Royale: Host-Zustand ---- */
+let teamModeEnabled = false;
+let teamCount = 2, teamSize = 2;
+let brTeams = {};           // Host: teamId(String) -> {name, captain:pid|null, members:[pid,...]}
+let brSpectatorIds = [];    // Host: playerIds, die als Zuschauer eingestellt sind (nehmen nicht teil)
+
+/* ---- Team-Battle-Royale: Client-lokaler Zustand ---- */
+let myTeamId = null;        // Client: eigene Team-ID, oder null (noch keinem Team beigetreten / Zuschauer)
+let brMyTeamMemberIds = []; // Client: Spieler-IDs des eigenen Teams (Snapshot bei Rundenstart, für die Sabotage-Zielauswahl)
+
 let tOrder = [];            // Host: Beitritts-Reihenfolge (stabil für Anzeige)
 let tStarted = false;
 let tRounds = null;         // Host: autoritativer Turnierbaum
@@ -3748,6 +3799,8 @@ let brChefarzt = null;       // Host: aktiver Chefarztvisite-Zustand, oder null
 let brTimer = null;
 
 let tMyRosterCache = [];    // beide: letzte bekannte Spielerliste
+let tMyTeamsCache = null;   // beide: letzte bekannte Team-Aufstellung (oder null außerhalb des Team-Modus)
+let tMySpectatorsCache = null; // beide: letzte bekannte Zuschauerliste (oder null außerhalb des Team-Modus)
 let tMyBracketCache = null; // beide: letzter bekannter Baum-Snapshot
 let tCurrentMatchId = null; // beide: Match, in dem ich gerade aktiv bin (oder null)
 let tMySlot = null;         // beide: "p1" oder "p2" im aktuellen Match
@@ -4111,6 +4164,26 @@ $("aebp-unlock-btn").onclick = ()=>{
   } else {
     $("aebp-unlock-msg").textContent = "❌ Falscher Code.";
   }
+};
+$("team-mode-toggle").onchange = (e)=>{
+  teamModeEnabled = e.target.checked;
+  $("team-mode-settings").classList.toggle("hidden", !teamModeEnabled);
+  if(teamModeEnabled){
+    teamCount = parseInt($("team-count").value,10) || 2;
+    teamSize = parseInt($("team-size").value,10) || 2;
+    initTeams();
+  }
+  if(isHost) broadcastRoster();
+};
+$("team-count").onchange = (e)=>{
+  teamCount = Math.max(2, parseInt(e.target.value,10) || 2);
+  e.target.value = teamCount;
+  if(teamModeEnabled){ initTeams(); if(isHost) broadcastRoster(); }
+};
+$("team-size").onchange = (e)=>{
+  teamSize = Math.max(2, parseInt(e.target.value,10) || 2);
+  e.target.value = teamSize;
+  if(teamModeEnabled){ initTeams(); if(isHost) broadcastRoster(); }
 };
 $("br-joker").onclick = brUseJoker;
 $("br-final-menu").onclick = ()=> maybeShowReportReview(()=>{ tCleanup(); show("menu"); });
@@ -5045,6 +5118,18 @@ function hostHandlePlayerMsg(pid, msg){
     case "brvote":
       hostReceiveBRVote(pid, msg.topic);
       break;
+    case "jointeam":
+      if(tStarted) return;
+      hostReceiveJoinTeam(pid, msg.teamId);
+      break;
+    case "setteamname":
+      if(tStarted) return;
+      hostReceiveSetTeamName(pid, msg.teamId, msg.name);
+      break;
+    case "becomecaptain":
+      if(tStarted) return;
+      hostReceiveBecomeCaptain(pid, msg.teamId);
+      break;
     case "brans":
       hostReceiveBRAnswer(pid, msg.choice, msg.elapsed, msg.i);
       break;
@@ -5126,7 +5211,113 @@ function finalizeReconnect(pid){
 
 function broadcastRoster(){
   const list = tOrder.map(pid=>({id:pid, name:tPlayers[pid].name, avatar: tPlayers[pid].avatar||GUEST_AVATAR}));
-  broadcastAll({ t:"troster", players:list, started:tStarted });
+  broadcastAll({ t:"troster", players:list, started:tStarted,
+    teamMode: teamModeEnabled, teamCount, teamSize,
+    teams: teamModeEnabled ? serializeTeams() : null,
+    spectators: teamModeEnabled ? brSpectatorIds.slice() : null
+  });
+}
+
+function serializeTeams(){
+  const out = {};
+  Object.keys(brTeams).forEach(tid=>{
+    out[tid] = {
+      name: brTeams[tid].name,
+      captain: brTeams[tid].captain,
+      members: brTeams[tid].members.map(pid=>({id:pid, name:nameOf(pid), avatar:avatarOf(pid)}))
+    };
+  });
+  return out;
+}
+
+// Legt frische, leere Teams gemäß teamCount an (bestehende Namen/Mitglieder gehen dabei verloren --
+// wird nur beim (Neu-)Einschalten des Team-Modus bzw. bei Änderung der Teamanzahl in der Lobby aufgerufen).
+function initTeams(){
+  brTeams = {};
+  for(let i=1;i<=teamCount;i++){ brTeams[String(i)] = { name:`Team ${i}`, captain:null, members:[] }; }
+  brSpectatorIds = [];
+}
+
+function playerTeamId(pid){
+  for(const tid in brTeams){ if(brTeams[tid].members.includes(pid)) return tid; }
+  return null;
+}
+
+// Entfernt eine Person aus ihrem aktuellen Team (falls vorhanden) und aus der Zuschauerliste --
+// gibt die Kapitänsrolle frei, falls diese Person Kapitän war.
+function removePlayerFromTeams(pid){
+  Object.keys(brTeams).forEach(tid=>{
+    const team = brTeams[tid];
+    const idx = team.members.indexOf(pid);
+    if(idx>=0) team.members.splice(idx,1);
+    if(team.captain===pid) team.captain=null;
+  });
+  brSpectatorIds = brSpectatorIds.filter(id=>id!==pid);
+}
+
+// Guest-Wunsch: einem Team beitreten. Volle Teams weisen den Beitritt ab (Client-UI blendet volle
+// Teams zwar schon aus, der Host prüft aber trotzdem nochmal nach, für den Fall von Wettlaufsituationen).
+function hostReceiveJoinTeam(pid, teamId){
+  const team = brTeams[teamId];
+  if(!team) return;
+  if(team.members.length>=teamSize && !team.members.includes(pid)) return;
+  removePlayerFromTeams(pid);
+  team.members.push(pid);
+  broadcastRoster();
+}
+
+// Kapitän vergibt den Teamnamen -- nur die aktuell amtierende Kapitänsperson darf das.
+function hostReceiveSetTeamName(pid, teamId, name){
+  const team = brTeams[teamId];
+  if(!team || team.captain!==pid) return;
+  const clean = String(name||"").trim().slice(0,24);
+  if(!clean) return;
+  team.name = clean;
+  broadcastRoster();
+}
+
+// Erster Klick gewinnt: nur möglich, wenn noch niemand Kapitän ist und man selbst Mitglied des Teams ist.
+function hostReceiveBecomeCaptain(pid, teamId){
+  const team = brTeams[teamId];
+  if(!team || team.captain || !team.members.includes(pid)) return;
+  team.captain = pid;
+  broadcastRoster();
+}
+
+/* ---- Host-Steuerung: direkte lokale Eingriffe, keine Netzwerknachricht nötig (Host hat die Autorität) ---- */
+function hostMovePlayerToTeam(pid, teamId){
+  if(!brTeams[teamId]) return;
+  removePlayerFromTeams(pid);
+  brTeams[teamId].members.push(pid);
+  broadcastRoster();
+}
+
+function hostSetPlayerSpectator(pid){
+  removePlayerFromTeams(pid);
+  if(!brSpectatorIds.includes(pid)) brSpectatorIds.push(pid);
+  broadcastRoster();
+}
+
+function hostAddTeam(){
+  teamCount++;
+  const newId = String(teamCount);
+  brTeams[newId] = { name:`Team ${newId}`, captain:null, members:[] };
+  broadcastRoster();
+}
+
+// Prüft VOR dem eigentlichen BR-Start, ob im Team-Modus alle Teams exakt die eingestellte Größe haben.
+// Ungleiche/unvollständige Teams verhindern den Start, mit klarer Fehlermeldung statt stillem Fehlschlag.
+function validateTeamsBeforeStart(){
+  if(!teamModeEnabled) return true;
+  const teamIds = Object.keys(brTeams);
+  for(const tid of teamIds){
+    const team = brTeams[tid];
+    if(team.members.length !== teamSize){
+      $("t-err").textContent = `Team "${team.name}" hat ${team.members.length}/${teamSize} Mitgliedern — alle Teams müssen exakt voll sein, bevor die Battle Royale gestartet werden kann.`;
+      return false;
+    }
+  }
+  return true;
 }
 
 function broadcastBracket(note){
@@ -5381,11 +5572,14 @@ function tStartTournament(){
 function tStartBattleRoyale(){
   if(tOrder.length<2) return;
   if(!validateEventTagBeforeStart()) return;
+  if(!validateTeamsBeforeStart()) return;
   tStarted=true;      // sperrt neue Beitritte, wie beim Turnier
   QUESTION_POOL_CATEGORY = $("tourn-pool").value || "Blockpraktikum";
   captureEventTag();
   brActive=true;
-  brPlayers=tOrder.slice();
+  // Zuschauer spielen nicht mit -- im Team-Modus sind das genau die Leute in brSpectatorIds,
+  // außerhalb des Team-Modus gibt es keine Zuschauerrolle.
+  brPlayers = teamModeEnabled ? tOrder.filter(pid=>!brSpectatorIds.includes(pid)) : tOrder.slice();
   brEliminated=[];
   brRound=0;
   brJokerCharges={}; brSabotageCharges={};
@@ -5459,6 +5653,21 @@ function hostReceiveBRSabotage(playerId, targetId){
   if(playerId===targetId) return;
   if((brSabotageCharges[playerId]||0)<=0) return;
   if(brSabotageUsedBy.has(playerId)) return;
+
+  if(teamModeEnabled){
+    const myTid = playerTeamId(playerId);
+    const targetTid = playerTeamId(targetId);
+    if(!targetTid || myTid===targetTid) return; // eigenes Team kann nicht Ziel sein
+    brSabotageCharges[playerId]--;
+    brSabotageUsedBy.add(playerId);
+    const targetTeam = brTeams[targetTid];
+    targetTeam.members.forEach(pid=>{
+      if(brPlayers.includes(pid)) brTimeReduction[pid] = (brTimeReduction[pid]||0) + BR_SABOTAGE_TIME_REDUCTION;
+    });
+    broadcastToBR({ t:"brsabotageannounce", by:playerId, byName:nameOf(playerId), target:targetId, targetName:targetTeam.name });
+    return;
+  }
+
   brSabotageCharges[playerId]--;
   brSabotageUsedBy.add(playerId);
   brTimeReduction[targetId] = (brTimeReduction[targetId]||0) + BR_SABOTAGE_TIME_REDUCTION;
@@ -5529,6 +5738,21 @@ function hostReceiveBRJoker(playerId){
   const wrongIdx=cur.options.map((_,i)=>i).filter(i=>i!==cur.answer);
   const eliminate=shuffle(wrongIdx).slice(0,2);
   brJokerCharges[playerId]--;
+
+  if(teamModeEnabled){
+    // Jede Person hat ihre eigene Ladung (kein gemeinsamer Vorrat), aber die Auflösung (welche 2
+    // falschen Antworten gestrichen werden) gilt für ALLE noch aktiven Team-Mitglieder gleichzeitig.
+    const tid = playerTeamId(playerId);
+    const team = tid ? brTeams[tid] : null;
+    if(team){
+      team.members.forEach(pid=>{
+        if(!brPlayers.includes(pid)) return;
+        deliverToPlayer(pid, { t:"brjokerused", eliminate, remaining: pid===playerId ? brJokerCharges[playerId] : (brJokerCharges[pid]||0) });
+      });
+      return;
+    }
+  }
+
   deliverToPlayer(playerId, { t:"brjokerused", eliminate, remaining:brJokerCharges[playerId] });
 }
 
@@ -5569,6 +5793,8 @@ let brLastRoundEarners = []; // Host: wer hat in der gerade beendeten Runde eine
 // zuerst), dann fliegt der berechnete Anteil von unten raus. Bei ungerader Spielerzahl in den ersten beiden
 // Runden bekommt der/die knapp Ausgeschiedene zusätzlich eine Chefarztvisite als letzte Chance.
 function endBRRound(){
+  if(teamModeEnabled){ endBRRoundTeamMode(); return; }
+
   brLastRoundEarners = tallyBRSabotageEarnings();
 
   const ranked = brPlayers.slice().sort((a,b)=>{
@@ -5594,6 +5820,47 @@ function endBRRound(){
   finishBRElimination(ranked.slice(0,survivorsCount), ranked.slice(survivorsCount), null);
 }
 
+// Team-Variante von endBRRound: Teams steigen/fliegen gemeinsam, gewertet wird die SUMME aus
+// richtigen Antworten/Punkten/Antwortzeit aller noch aktiven Mitglieder. Da alle Teams laut
+// Validierung vor dem Start gleich groß sind/bleiben, entspricht "Summe" exakt dem Team-Durchschnitt
+// in der Rangfolge -- keine Bruchrechnung nötig. Chefarztvisite gibt es im Team-Modus bewusst nicht,
+// da sie auf Einzelspieler-Ungeradzahligkeit ausgelegt ist und im Team-Kontext keinen sauberen Sinn ergäbe.
+function endBRRoundTeamMode(){
+  brLastRoundEarners = tallyBRSabotageEarnings();
+
+  const activeTeamIds = Object.keys(brTeams).filter(tid=>
+    brTeams[tid].members.some(pid=>brPlayers.includes(pid))
+  );
+  const teamAgg = {};
+  activeTeamIds.forEach(tid=>{
+    const activeMembers = brTeams[tid].members.filter(pid=>brPlayers.includes(pid));
+    teamAgg[tid] = {
+      correct: activeMembers.reduce((s,pid)=>s+(brCorrectCount[pid]||0),0),
+      score: activeMembers.reduce((s,pid)=>s+(brScores[pid]||0),0),
+      elapsed: activeMembers.reduce((s,pid)=>s+(brTotalElapsed[pid]||0),0),
+      members: activeMembers
+    };
+  });
+
+  const rankedTeams = activeTeamIds.slice().sort((a,b)=>{
+    if(teamAgg[b].correct!==teamAgg[a].correct) return teamAgg[b].correct-teamAgg[a].correct;
+    if(teamAgg[b].score!==teamAgg[a].score) return teamAgg[b].score-teamAgg[a].score;
+    return teamAgg[a].elapsed-teamAgg[b].elapsed;
+  });
+
+  let eliminatedTeamCount = Math.floor(rankedTeams.length*BR_ELIMINATION_RATE);
+  if(eliminatedTeamCount<1 && rankedTeams.length>1) eliminatedTeamCount=1;
+  if(eliminatedTeamCount>=rankedTeams.length) eliminatedTeamCount=rankedTeams.length-1; // nie alle Teams rauswerfen
+
+  const survivorTeamIds = rankedTeams.slice(0, rankedTeams.length-eliminatedTeamCount);
+  const eliminatedTeamIds = rankedTeams.slice(rankedTeams.length-eliminatedTeamCount);
+
+  const survivors = survivorTeamIds.flatMap(tid=>teamAgg[tid].members);
+  const eliminatedNow = eliminatedTeamIds.flatMap(tid=>teamAgg[tid].members);
+
+  finishBRElimination(survivors, eliminatedNow, null);
+}
+
 // Schließt eine Runde endgültig ab: verbucht Ausgeschiedene, informiert alle Beteiligten,
 // und startet entweder die nächste Runde oder beendet den Lauf. chefarztCandidateId ist gesetzt,
 // wenn diese Runde eine Chefarztvisite hatte — unabhängig davon, ob bestanden oder nicht, damit der
@@ -5603,25 +5870,36 @@ function finishBRElimination(survivors, eliminatedNow, chefarztCandidateId){
     brEliminated.push({ playerId:pid, name:nameOf(pid), avatar:avatarOf(pid), round:brRound, score:brScores[pid], correct:brCorrectCount[pid]||0 });
   });
 
+  // Im Team-Modus ist der Lauf beendet, sobald nur noch EIN Team übrig ist (nicht: nur noch 1 Spieler,
+  // da ein Team ja aus mehreren Personen besteht).
+  const remainingTeamCount = teamModeEnabled ? new Set(survivors.map(pid=>playerTeamId(pid))).size : null;
+  const isFinished = teamModeEnabled ? remainingTeamCount<=1 : survivors.length<=1;
+
   const totalQ = brDeck.length;
   broadcastToList(survivors.concat(eliminatedNow), {
     t:"brroundresult", round:brRound, totalQ,
-    eliminated: eliminatedNow.map(pid=>({id:pid, name:nameOf(pid), avatar:avatarOf(pid), score:brScores[pid], correct:brCorrectCount[pid]||0})),
-    survivors: survivors.map(pid=>({id:pid, name:nameOf(pid), avatar:avatarOf(pid), score:brScores[pid], correct:brCorrectCount[pid]||0})),
+    eliminated: eliminatedNow.map(pid=>({id:pid, name:nameOf(pid), avatar:avatarOf(pid), score:brScores[pid], correct:brCorrectCount[pid]||0, teamName: teamModeEnabled?teamNameOf(pid):null})),
+    survivors: survivors.map(pid=>({id:pid, name:nameOf(pid), avatar:avatarOf(pid), score:brScores[pid], correct:brCorrectCount[pid]||0, teamName: teamModeEnabled?teamNameOf(pid):null})),
     sabotageEarners: brLastRoundEarners.map(pid=>nameOf(pid)),
     chefarztCandidateId: chefarztCandidateId||null,
-    finished: survivors.length<=1
+    finished: isFinished
   });
 
   brPlayers = survivors;
 
   setTimeout(()=>{
-    if(brPlayers.length<=1){
+    const stillMultipleTeams = teamModeEnabled ? new Set(brPlayers.map(pid=>playerTeamId(pid))).size>1 : null;
+    if(teamModeEnabled ? !stillMultipleTeams : brPlayers.length<=1){
       endBattleRoyale();
     } else {
       startBRRound();
     }
   }, BR_ELIMINATION_PAUSE);
+}
+
+function teamNameOf(pid){
+  const tid = playerTeamId(pid);
+  return tid && brTeams[tid] ? brTeams[tid].name : null;
 }
 
 /* ---- Chefarztvisite: letzte Chance für den/die knapp Ausgeschiedene bei ungerader Spielerzahl ---- */
@@ -6636,6 +6914,9 @@ function handleIncomingTournamentMsg(msg){
   switch(msg.t){
     case "troster":
       tMyRosterCache=msg.players; tStarted=msg.started;
+      teamModeEnabled=!!msg.teamMode; teamCount=msg.teamCount||2; teamSize=msg.teamSize||2;
+      tMyTeamsCache=msg.teams||null; tMySpectatorsCache=msg.spectators||null;
+      if(tMyTeamsCache){ myTeamId = Object.keys(tMyTeamsCache).find(tid=>tMyTeamsCache[tid].members.some(m=>m.id===myPlayerId)) || null; }
       if(!tStarted) renderRoster();
       break;
     case "tbracket":
@@ -6734,23 +7015,34 @@ function handleIncomingTournamentMsg(msg){
 
 function renderRoster(){
   show("tourn-lobby");
-  const box=$("t-roster"); box.innerHTML="";
-  tMyRosterCache.forEach(p=>{
-    const li=document.createElement("div");
-    li.className="roster-item";
-    li.textContent = (p.avatar||GUEST_AVATAR) + " " + p.name + (p.id==="HOST" ? " (Host)" : "") + (p.id===myPlayerId ? " — Du" : "");
-    box.appendChild(li);
-  });
+
+  if(teamModeEnabled && tMyTeamsCache){
+    $("t-roster").classList.add("hidden");
+    $("t-team-roster").classList.remove("hidden");
+    renderTeamRoster();
+  }else{
+    $("t-roster").classList.remove("hidden");
+    $("t-team-roster").classList.add("hidden");
+    const box=$("t-roster"); box.innerHTML="";
+    tMyRosterCache.forEach(p=>{
+      const li=document.createElement("div");
+      li.className="roster-item";
+      li.textContent = (p.avatar||GUEST_AVATAR) + " " + p.name + (p.id==="HOST" ? " (Host)" : "") + (p.id===myPlayerId ? " — Du" : "");
+      box.appendChild(li);
+    });
+  }
   $("t-count").textContent = tMyRosterCache.length + (tMyRosterCache.length===1 ? " Spieler" : " Spieler");
 
   if(isHost){
     $("t-host-only").classList.remove("hidden");
     $("t-guest-only").classList.add("hidden");
     $("t-bots-section").classList.remove("hidden");
-    $("t-start").classList.remove("hidden");
+    // Team-Modus ist bewusst nur für Battle Royale gedacht -- solange er aktiv ist, bleibt der
+    // Turnier-Start ausgeblendet, damit keine gebildeten Teams für ein Turnier "verpuffen".
+    $("t-start").classList.toggle("hidden", teamModeEnabled);
     $("t-start").disabled = tMyRosterCache.length<2;
     $("t-start-br").classList.remove("hidden");
-    $("t-start-br").disabled = tMyRosterCache.length<2;
+    $("t-start-br").disabled = teamModeEnabled ? !allTeamsFull() : tMyRosterCache.length<2;
   } else {
     $("t-host-only").classList.add("hidden");
     $("t-guest-only").classList.remove("hidden");
@@ -6758,6 +7050,139 @@ function renderRoster(){
     $("t-start").classList.add("hidden");
     $("t-start-br").classList.add("hidden");
   }
+}
+
+function allTeamsFull(){
+  if(!tMyTeamsCache) return false;
+  return Object.values(tMyTeamsCache).every(t=>t.members.length===teamSize);
+}
+
+// Rendert die Team-Kacheln: Team-Name (vom Kapitän editierbar), Mitgliederliste mit Kapitäns-Stern,
+// "Team beitreten"-Button (falls noch nicht Mitglied und Platz frei), sowie -- nur für den Host --
+// pro Mitglied ein kleines Verschieben/Kicken/Zuschauer-Menü. Darunter die Zuschauerliste.
+function renderTeamRoster(){
+  const box = $("t-team-roster");
+  box.innerHTML = "";
+  const teamIds = Object.keys(tMyTeamsCache);
+
+  teamIds.forEach(tid=>{
+    const team = tMyTeamsCache[tid];
+    const full = team.members.length>=teamSize;
+    const card = document.createElement("div");
+    card.className = "team-card"+(full?" full":"");
+
+    const head = document.createElement("div");
+    head.className = "team-card-head";
+    const nameEl = document.createElement("div");
+    nameEl.className = "team-card-name";
+    nameEl.textContent = team.name;
+    head.appendChild(nameEl);
+    const countEl = document.createElement("div");
+    countEl.className = "team-card-count";
+    countEl.textContent = `${team.members.length}/${teamSize}`;
+    head.appendChild(countEl);
+    card.appendChild(head);
+
+    // Kapitän darf den Teamnamen bearbeiten
+    if(team.captain===myPlayerId){
+      const nameInput = document.createElement("input");
+      nameInput.className = "team-name-input";
+      nameInput.maxLength = 24;
+      nameInput.value = team.name;
+      nameInput.placeholder = "Teamname";
+      nameInput.onchange = ()=> sendTeamMsg({ t:"setteamname", teamId:tid, name:nameInput.value });
+      card.appendChild(nameInput);
+    }
+
+    team.members.forEach(m=>{
+      const row = document.createElement("div");
+      row.className = "team-member-row";
+      const nameSpan = document.createElement("span");
+      nameSpan.className = "team-member-name";
+      nameSpan.innerHTML = `${team.captain===m.id?'<span class="captain-star">★</span>':""}${escapeHtml(m.avatar||GUEST_AVATAR)} ${escapeHtml(m.name)}${m.id===myPlayerId?" — Du":""}`;
+      row.appendChild(nameSpan);
+
+      if(isHost){
+        const controls = document.createElement("div");
+        controls.className = "team-host-controls";
+        const sel = document.createElement("select");
+        sel.innerHTML = `<option value="">Verschieben…</option>` +
+          teamIds.filter(t2=>t2!==tid).map(t2=>`<option value="${t2}">${escapeHtml(tMyTeamsCache[t2].name)}</option>`).join("");
+        sel.onchange = ()=>{ if(sel.value){ hostMovePlayerToTeam(m.id, sel.value); } };
+        controls.appendChild(sel);
+        const specBtn = document.createElement("button");
+        specBtn.textContent = "👁️";
+        specBtn.title = "Als Zuschauer einstellen";
+        specBtn.onclick = ()=> hostSetPlayerSpectator(m.id);
+        controls.appendChild(specBtn);
+        const kickBtn = document.createElement("button");
+        kickBtn.textContent = "✕";
+        kickBtn.title = "Kicken";
+        kickBtn.onclick = ()=> hostKickPlayer(m.id);
+        controls.appendChild(kickBtn);
+        row.appendChild(controls);
+      }
+      card.appendChild(row);
+    });
+
+    if(!isHost || myPlayerId){
+      const alreadyMember = team.members.some(m=>m.id===myPlayerId);
+      if(!alreadyMember && !full){
+        const joinBtn = document.createElement("button");
+        joinBtn.className = "btn btn-ghost team-join-btn";
+        joinBtn.textContent = "Team beitreten";
+        joinBtn.onclick = ()=> sendTeamMsg({ t:"jointeam", teamId:tid });
+        card.appendChild(joinBtn);
+      } else if(alreadyMember && !team.captain){
+        const capBtn = document.createElement("button");
+        capBtn.className = "btn btn-ghost team-join-btn";
+        capBtn.textContent = "⭐ Werde Kapitän";
+        capBtn.onclick = ()=> sendTeamMsg({ t:"becomecaptain", teamId:tid });
+        card.appendChild(capBtn);
+      }
+    }
+
+    box.appendChild(card);
+  });
+
+  if(isHost){
+    const addBtn = document.createElement("button");
+    addBtn.className = "btn btn-ghost";
+    addBtn.textContent = "+ Team hinzufügen";
+    addBtn.onclick = hostAddTeam;
+    box.appendChild(addBtn);
+  }
+
+  if(tMySpectatorsCache && tMySpectatorsCache.length>0){
+    const specCard = document.createElement("div");
+    specCard.className = "spectator-card";
+    const title = document.createElement("div");
+    title.className = "spectator-card-title";
+    title.textContent = "👁️ Zuschauer";
+    specCard.appendChild(title);
+    tMySpectatorsCache.forEach(pid=>{
+      const p = tMyRosterCache.find(x=>x.id===pid);
+      const row = document.createElement("div");
+      row.className = "team-member-row";
+      row.textContent = p ? `${p.avatar||GUEST_AVATAR} ${p.name}${pid===myPlayerId?" — Du":""}` : pid;
+      specCard.appendChild(row);
+    });
+    box.appendChild(specCard);
+  }
+}
+
+function sendTeamMsg(obj){
+  if(isHost){ hostHandlePlayerMsg("HOST", obj); }
+  else { tConn.send(obj); }
+}
+
+function hostKickPlayer(pid){
+  removePlayerFromTeams(pid);
+  tOrder = tOrder.filter(id=>id!==pid);
+  delete tPlayers[pid];
+  const c = tConns[pid];
+  if(c){ try{ c.close(); }catch(e){} delete tConns[pid]; }
+  broadcastRoster();
 }
 
 function renderBracketScreen(){
@@ -7268,6 +7693,12 @@ let brRulesMsg = null;
 function showBRRulesScreen(msg){
   brMyJokerLeft = BR_JOKER_START;
   brRulesMsg = msg;
+  // Snapshot der eigenen Team-Mitglieder für die Dauer des Laufs (Teams ändern sich nach dem Start
+  // nicht mehr) -- wird für die Sabotage-Zielauswahl gebraucht, damit man nicht versehentlich das
+  // eigene Team anklicken kann.
+  brMyTeamMemberIds = (teamModeEnabled && myTeamId && tMyTeamsCache && tMyTeamsCache[myTeamId])
+    ? tMyTeamsCache[myTeamId].members.map(m=>m.id)
+    : [];
   show("br-rules");
   brRulesPage = "rules";
   $("br-rules-img").src = BR_RULES_IMG;
@@ -7460,7 +7891,7 @@ function renderBRTileGrid(tiles, positionsMap, targetable){
       ? `<div class="bt-draw-badges">${positions.map(p=>`<span class="bt-draw-badge">${p}.</span>`).join("")}</div>`
       : "";
     el.innerHTML = `${badges}<div class="bt-name">${escapeHtml(t.avatar||GUEST_AVATAR)} ${escapeHtml(t.name)}</div><div class="bt-topic">${escapeHtml(t.topic)}</div>`;
-    if(targetable && t.playerId!==myId && !brSabotageUsedThisRound){
+    if(targetable && t.playerId!==myId && !brSabotageUsedThisRound && !brMyTeamMemberIds.includes(t.playerId)){
       el.classList.add("targetable");
       el.onclick=()=>{
         if(brSabotageUsedThisRound) return;
